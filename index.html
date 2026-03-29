@@ -708,24 +708,35 @@ async function manualSync() {
     // Push data ke sheet
     await performFullSync();
     
-    // Pull data dari sheet via JSONP (bypass CORS untuk GET)
-    try {
-        if (currentKasir) {
-            const result = await fetchGAS('getData', { kasir: currentKasir });
+    // Pull semua kasir dari sheet via JSONP
+    let totalNewTr = 0, totalNewTs = 0;
+    for (let k of KASIR_NAMES) {
+        try {
+            const result = await fetchGAS('getData', { kasir: k });
             if (result && result.success) {
-                let newTr = result.data.transactions.filter(t => !currentData.tr.some(ot => ot.id === t.id));
-                let newTs = result.data.saldoAdjusts.filter(s => !currentData.ts.some(os => os.id === s.id));
-                if (newTr.length) currentData.tr = [...newTr, ...currentData.tr];
-                if (newTs.length) currentData.ts = [...newTs, ...currentData.ts];
-                localStorage.setItem('alfaza_db', JSON.stringify(db));
-                updateUI();
-                refreshHistory();
-                showToast(`\u2705 Sync: +${newTr.length} transaksi, +${newTs.length} saldo`);
+                // Normalisasi format tanggal dari Sheet (ISO) ke format app (YYYY-MM-DD)
+                const normTr = result.data.transactions.map(t => ({
+                    ...t,
+                    tgl: t.tgl ? t.tgl.substring(0, 10) : t.tgl,
+                    waktu: t.waktu ? t.waktu.substring(0, 10) : t.waktu
+                }));
+                const normTs = result.data.saldoAdjusts.map(s => ({
+                    ...s,
+                    tgl: s.tgl ? s.tgl.substring(0, 10) : s.tgl,
+                    waktu: s.waktu ? s.waktu.substring(0, 10) : s.waktu
+                }));
+                let newTr = normTr.filter(t => !db[k].tr.some(ot => ot.id === t.id));
+                let newTs = normTs.filter(s => !db[k].ts.some(os => os.id === s.id));
+                if (newTr.length) db[k].tr = [...newTr, ...db[k].tr];
+                if (newTs.length) db[k].ts = [...newTs, ...db[k].ts];
+                totalNewTr += newTr.length;
+                totalNewTs += newTs.length;
             }
-        }
-    } catch(e) {
-        console.error('[SYNC] Pull failed:', e);
+        } catch(e) { console.warn('[PULL] Kasir ' + k + ' gagal:', e); }
     }
+    localStorage.setItem('alfaza_db', JSON.stringify(db));
+    if (currentData) { updateUI(); refreshHistory(); }
+    showToast('\u2705 Sync selesai: +' + totalNewTr + ' transaksi, +' + totalNewTs + ' saldo');
 }
 
 // Helper: GET request ke GAS via JSONP (bypass CORS)
@@ -768,8 +779,18 @@ async function forcePullFromSheet() {
             try {
                 const result = await fetchGAS('getData', { kasir: k });
                 if (result && result.success) {
-                    let newTr = result.data.transactions.filter(t => !db[k].tr.some(ot => ot.id === t.id));
-                    let newTs = result.data.saldoAdjusts.filter(s => !db[k].ts.some(os => os.id === s.id));
+                    const normTr = result.data.transactions.map(t => ({
+                        ...t,
+                        tgl: t.tgl ? t.tgl.substring(0, 10) : t.tgl,
+                        waktu: t.waktu ? t.waktu.substring(0, 10) : t.waktu
+                    }));
+                    const normTs = result.data.saldoAdjusts.map(s => ({
+                        ...s,
+                        tgl: s.tgl ? s.tgl.substring(0, 10) : s.tgl,
+                        waktu: s.waktu ? s.waktu.substring(0, 10) : s.waktu
+                    }));
+                    let newTr = normTr.filter(t => !db[k].tr.some(ot => ot.id === t.id));
+                    let newTs = normTs.filter(s => !db[k].ts.some(os => os.id === s.id));
                     if (newTr.length) db[k].tr = [...newTr, ...db[k].tr];
                     if (newTs.length) db[k].ts = [...newTs, ...db[k].ts];
                     berhasil++;
